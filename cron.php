@@ -23,33 +23,65 @@ $searchObject 		= "Opportunity";
 function plugin_admin_init() {
 	register_setting( 'outreach_options', 'outreach_options' );
 	add_settings_section('outreach_main', 'Outreach Settings', 'outreach_section_text', 'outreach_options');
-//	$outreaches = get_option('outreach_options');
-	//output_all_setting_feilds($outreaches);
 	updateOpportunities();
-
+	$outreaches = get_option('outreach_options');
+	output_all_setting_fields($outreaches);
 
 }
 
 function updateOpportunities(){
+	$options = get_option('outreach_options');
 	$outreaches = outputOpportunities(array("outreach__c"), "Opportunity");
 	$positions = outputOpportunities(array("Type_of_Volunteer__c"), "Opportunity");
-	//update_option('outreach_options', $fields);
 	
-	$data = array();
+	$values = array_flatten_recursive((array)$options);
 	foreach ($outreaches as $outreach){
-		$outreach->positions = $positions;
-		foreach ($outreach->positions as $position){
-			$position->target = 0;
-			$position->advertise = false;
-		}
-		
-		$data[] = $outreach;
+		//Lets check to see if we need to add any new outreaches to our wordpress cache
+		if(!in_array($outreach->value, $values, true)){
 
+			//Build our data model
+			$outreach->show = true;
+			$outreach->positions = $positions;
+			foreach ($outreach->positions as $position){
+				$position->target = 0;
+				$position->advertise = false;
+			}
+			//Add the new outreach to our existing data
+			$options[] = $outreach;
+			//Update our database to add the new outreach from salesforce
+			update_option('outreach_options', $options);
+
+		}
 	}
-	update_option('outreach_options', $data);
-	echo "<pre>";
-	print_r($data	);
-	echo "</pre>";
+	
+	foreach ($positions as $position){
+		//Lets check to see if we need to add any new positions to our wordpress cache
+		if(!in_array($position->value, $values, true)){
+			//Build our data model
+			foreach ($options as $option){
+				$position->target = 0;
+				$position->advertise = false;
+				$option->positions[] = $position;
+
+			}
+			//Add the new position to our existing data
+			$options[] = $option;
+			echo "<pre>";
+			print_r($options);
+			echo "</pre>";
+			//Update our database to add the new outreach from salesforce
+			update_option('outreach_options', $options);
+
+		}
+	}
+}
+
+function array_flatten_recursive($array) { 
+   if (!$array) return false;
+   $flat = array();
+   $RII = new RecursiveIteratorIterator(new RecursiveArrayIterator($array));
+   foreach ($RII as $value) $flat[] = $value;
+   return $flat;
 }
 
 function plugin_admin_add_page() {
@@ -64,33 +96,28 @@ function outreach_options_validate($input) {
 	return $newinput;
 }
 
-function output_all_setting_feilds($outreaches){
+function output_all_setting_fields($outreaches){
 	/*
 	echo "<pre>";
 	print_r($outreaches	);
 	echo "</pre>";
 	*/
-	foreach($outreaches as $outreach => $positions){
-
-		foreach($positions as $position => $value){
-
-	
-
+	foreach($outreaches as $outreach){
+		foreach($outreach->positions as $position){
 			$value = '';
 			$check_value = '';
 			$target = '';
-			if(isset($value['checked'])){
-				if($value['checked'] == true){
+			if(isset($position->advertise)){
+				if($position->advertise == true){
 					$check_value = "checked=yes";
 				}
 			}
-
-			if(isset($value['target'])){
-				$target = $value['target'];
+			if(isset($position->target)){
+				$target = $position->target;
 			}
-			add_settings_field( $outreach."-".$position, $position, 'outreach_setting_field', 'outreach_options',
-									'outreach_main', array('label_for' => $outreach."-".$position, 'id' => array('outreach' => $outreach,  
-									'position' => $position, 'checked' => $check_value, 'target' => $target ) ));
+			add_settings_field( $outreach->value."-".$position->value, $position->value, 'outreach_setting_field', 'outreach_options',
+									'outreach_main', array('label_for' => $outreach->value."-".$position->value, 'id' => array('outreach' => $outreach->value,  
+									'position' => $position->value, 'checked' => $check_value, 'target' => $target ) ));
 		}
 
 	}
