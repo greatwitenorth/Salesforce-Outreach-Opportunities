@@ -34,9 +34,13 @@ function updateOpportunities(){
 	$outreaches = outputOpportunities(array("outreach__c"), "Opportunity");
 	$positions = outputOpportunities(array("Type_of_Volunteer__c"), "Opportunity");
 	
+		echo "<pre>";
+		print_r(json_decode(json_encode($outreaches), true));
+		echo "</pre>";
+	
+	//Lets check to see if we need to add any new outreaches to our wordpress cache
 	$values = array_flatten_recursive((array)$options);
 	foreach ($outreaches as $outreach){
-		//Lets check to see if we need to add any new outreaches to our wordpress cache
 		if(!in_array($outreach->value, $values, true)){
 
 			//Build our data model
@@ -54,8 +58,8 @@ function updateOpportunities(){
 		}
 	}
 	
+	//Lets check to see if we need to add any new positions to our wordpress cache
 	foreach ($positions as $position){
-		//Lets check to see if we need to add any new positions to our wordpress cache
 		if(!in_array($position->value, $values, true)){
 			//Build our data model
 			foreach ($options as $option){
@@ -66,9 +70,7 @@ function updateOpportunities(){
 			}
 			//Add the new position to our existing data
 			$options[] = $option;
-			echo "<pre>";
-			print_r($options);
-			echo "</pre>";
+			
 			//Update our database to add the new outreach from salesforce
 			update_option('outreach_options', $options);
 
@@ -102,7 +104,7 @@ function output_all_setting_fields($outreaches){
 	print_r($outreaches	);
 	echo "</pre>";
 	*/
-	foreach($outreaches as $outreach){
+	foreach($outreaches as $key => $outreach){
 		foreach($outreach->positions as $position){
 			$value = '';
 			$check_value = '';
@@ -116,7 +118,7 @@ function output_all_setting_fields($outreaches){
 				$target = $position->target;
 			}
 			add_settings_field( $outreach->value."-".$position->value, $position->value, 'outreach_setting_field', 'outreach_options',
-									'outreach_main', array('label_for' => $outreach->value."-".$position->value, 'id' => array('outreach' => $outreach->value,  
+									'outreach_main', array('label_for' => $outreach->value."-".$position->value, 'id' => array('key' => $key, 'outreach' => $outreach->value,  
 									'position' => $position->value, 'checked' => $check_value, 'target' => $target ) ));
 		}
 
@@ -128,10 +130,11 @@ function outreach_setting_field($input) {
 	$position	= $input['id']['position'];
 	$value	 	= $input['id']['target'];
 	$checked 	= $input['id']['checked'];
+	$key 		= $input['id']['key'];
 		
-	echo "<input id='advertise-".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][checked]'
-			type='checkbox' value='true' $checked />";
-	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][target]' size='5' 
+//	echo "<input id='advertise-".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][checked]'
+//			type='checkbox' value='true' $checked />";
+	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$key."][".$outreach."][".$position."][target]' size='5' 
 			type='text' value='$value' />";
 }
 
@@ -174,8 +177,6 @@ function start() {
 	$values = $client->describeSObject($searchObject);
 	$outreaches = searchForField($values->fields, "outreach__c", "name");
 	$positions	= searchForField($values->fields, "Type_of_Volunteer__c", "name");
-	//print_r($outreaches);
-	//print_r($positions);
 	
 	foreach($outreaches->picklistValues as $outreach){
 		echo "<h1>" . $outreach->value . "</h1>";
