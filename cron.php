@@ -1,4 +1,3 @@
-<pre>
 <?php
 /*
 Plugin Name: Outreach Opportunities
@@ -15,15 +14,103 @@ add_action('admin_init', 'plugin_admin_init');
 @define('SFDC_PATH', dirname(__FILE__));
 require_once('connection.php');
 
+global $sf_db_version;
+$sf_db_version = "1.0";
+register_activation_hook(__FILE__,'outreach_install');
+register_activation_hook(__FILE__,'outreach_install_data');
+add_action('plugins_loaded', 'sf_db_check');
+
+add_action('activated_plugin','save_error');
+function save_error(){
+    update_option('plugin_error',  ob_get_contents());
+}
+
 //Set our custom field name and object it belongs to
 $searchFieldName 	= "outreach__c";
 $searchObject 		= "Opportunity";
 
+function sf_db_check() {
+    global $sf_db_version;
+    if (get_site_option('sf_db_version') != $sf_db_version) {
+        outreach_install();
+    }
+}
+
+function outreach_install(){
+	global $wpdb;
+	global $sf_db_version;
+	require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+
+	$table_name = $wpdb->prefix . "outreaches";
+	$sql = "CREATE TABLE " . $table_name . "  (
+	  id mediumint(9) NOT NULL AUTO_INCREMENT,
+	  time timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+	  active tinyint(1) DEFAULT NULL,
+	  defaultValue tinyint(1) DEFAULT NULL,
+	  label varchar(255) DEFAULT NULL,
+	  value varchar(255) DEFAULT NULL,
+	  display tinyint(1) DEFAULT NULL,
+	  PRIMARY KEY  (id)
+	) ;";
+	dbDelta($sql);
+	
+	$table_name = $wpdb->prefix . "outreach_positions";
+	$sql = "CREATE TABLE " . $table_name . "  (
+	  id mediumint(9) NOT NULL AUTO_INCREMENT,
+	  time timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+	  active tinyint(1) DEFAULT NULL,
+	  defaultValue tinyint(1) DEFAULT NULL,
+	  label varchar(255) DEFAULT NULL,
+	  value varchar(255) DEFAULT NULL,
+	  PRIMARY KEY  (id)
+	) ;";
+	dbDelta($sql);
+
+	$table_name = $wpdb->prefix . "outreach_positions_join";
+	$sql = "CREATE TABLE " . $table_name . "  (
+	  id mediumint(9) NOT NULL AUTO_INCREMENT,
+	  time timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+	  outreach_id int(11) DEFAULT NULL,
+	  position_id int(11) DEFAULT NULL,
+	  target_id int(11) DEFAULT NULL,
+	  advertise tinyint(1) DEFAULT NULL,
+	  PRIMARY KEY  (id)
+	) ;";
+	dbDelta($sql);
+	add_option("sf_db_version", $sf_db_version);
+}
+
+function outreach_install_data(){
+	global $wpdb;
+	$options = get_option('outreach_options');
+	$outreaches = outputOpportunities(array("outreach__c"), "Opportunity");
+	$positions = outputOpportunities(array("Type_of_Volunteer__c"), "Opportunity");
+	$table_name = $wpdb->prefix . "outreaches";
+
+	foreach ($outreaches as $outreach){
+		$query = "SELECT id FROM " . $table_name . " WHERE label = '" . $outreach->label . "'";
+		if($wpdb->query($query) === 0){
+			$rows_affected = $wpdb->insert( $table_name, array( 'active' => $outreach->active, 'defaultValue' => $outreach->defaultValue, 
+															'label' => $outreach->label, 'value' => $outreach->value,
+															'display' => true));
+		}
+	}
+	
+	$table_name = $wpdb->prefix . "outreach_positions";
+	foreach ($positions as $position){
+		$query = "SELECT id FROM " . $table_name . " WHERE label = '" . $position->label . "'";
+		if($wpdb->query($query) === 0){
+			$rows_affected = $wpdb->insert( $table_name, array( 'active' => $position->active, 'defaultValue' => $position->defaultValue, 
+															'label' => $position->label, 'value' => $position->value,
+															'advertise' => false));
+		}
+	}
+}
 
 function plugin_admin_init() {
 	register_setting( 'outreach_options', 'outreach_options' );
 	add_settings_section('outreach_main', 'Outreach Settings', 'outreach_section_text', 'outreach_options');
-	updateOpportunities();
+	//updateOpportunities();
 	$outreaches = get_option('outreach_options');
 	output_all_setting_fields($outreaches);
 
@@ -72,10 +159,6 @@ function updateOpportunities(){
 
 		}
 	}
-		echo "<pre>";
-		print_r(http_build_query($options[0])	);
-		echo "</pre>";
-	
 }
 
 function array_flatten_recursive($array) { 
@@ -99,13 +182,43 @@ function outreach_options_validate($input) {
 }
 
 function output_all_setting_fields($outreaches){
-	/*
-	echo "<pre>";
-	print_r($outreaches	);
-	echo "</pre>";
-	*/
+	global $wpdb;
+	$outreach_table_name = $wpdb->prefix . "outreaches";
+	$position_table_name = $wpdb->prefix . "outreach_positions";
+	$join_table_name = $wpdb->prefix . "outreach_positions_join";
+	
+	$outreaches = $wpdb->get_results( 
+		"
+		SELECT value, label 
+		FROM $outreach_table_name
+		WHERE active = true 
+			AND display = true
+		"
+	);
+	
+	$positions = $wpdb->get_results( 
+		"
+		SELECT value, label 
+		FROM $position_table_name
+		WHERE active = true 
+		"
+	);
+	
+	$target = $wpdb->get_results( 
+		"
+		SELECT * FROM $join_table_name a
+		INNER JOIN $outreach_table_name b 
+		ON b.id = a.outreach_id
+		INNER JOIN $position_table_name c
+		ON a.position_id = c.id
+		"
+	);
+		echo "<pre>";
+		print_r($target	);
+		echo "</pre>";
+	
 	foreach($outreaches as $key => $outreach){
-		foreach($outreach->positions as $position){
+		foreach($positions as $position){
 			$value = '';
 			$check_value = '';
 			$target = '';
@@ -133,7 +246,7 @@ function outreach_setting_field($input) {
 	$checked 	= $input['id']['checked'];
 	$key 		= $input['id']['key'];
 		
-//	echo "<input id='advertise-".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][checked]'
+	echo "<input id='advertise-".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][checked]'
 //			type='checkbox' value='true' $checked />";
 	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$key."]->positions[".$position."][target]' size='5' 
 			type='text' value='$value' />";
@@ -302,4 +415,3 @@ function getPhotos($contactids){
 }
 
 ?>
-</pre>
