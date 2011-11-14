@@ -34,10 +34,6 @@ function updateOpportunities(){
 	$outreaches = outputOpportunities(array("outreach__c"), "Opportunity");
 	$positions = outputOpportunities(array("Type_of_Volunteer__c"), "Opportunity");
 	
-		echo "<pre>";
-		print_r(json_decode(json_encode($outreaches), true));
-		echo "</pre>";
-	
 	//Lets check to see if we need to add any new outreaches to our wordpress cache
 	$values = array_flatten_recursive((array)$options);
 	foreach ($outreaches as $outreach){
@@ -76,6 +72,10 @@ function updateOpportunities(){
 
 		}
 	}
+		echo "<pre>";
+		print_r(http_build_query($options[0])	);
+		echo "</pre>";
+	
 }
 
 function array_flatten_recursive($array) { 
@@ -118,8 +118,9 @@ function output_all_setting_fields($outreaches){
 				$target = $position->target;
 			}
 			add_settings_field( $outreach->value."-".$position->value, $position->value, 'outreach_setting_field', 'outreach_options',
-									'outreach_main', array('label_for' => $outreach->value."-".$position->value, 'id' => array('key' => $key, 'outreach' => $outreach->value,  
-									'position' => $position->value, 'checked' => $check_value, 'target' => $target ) ));
+									'outreach_main', array('label_for' => $outreach->value."-".$position->value, 'id' => array(
+									'key' => $key, 'outreach' => $outreach->value, 'position' => $position->value, 
+									'checked' => $check_value, 'target' => $target ) ));
 		}
 
 	}
@@ -134,7 +135,7 @@ function outreach_setting_field($input) {
 		
 //	echo "<input id='advertise-".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][checked]'
 //			type='checkbox' value='true' $checked />";
-	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$key."][".$outreach."][".$position."][target]' size='5' 
+	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$key."]->positions[".$position."][target]' size='5' 
 			type='text' value='$value' />";
 }
 
