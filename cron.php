@@ -17,7 +17,7 @@ require_once('connection.php');
 global $sf_db_version;
 $sf_db_version = "1.0";
 register_activation_hook(__FILE__,'outreach_install');
-register_activation_hook(__FILE__,'outreach_install_data');
+register_activation_hook(__FILE__,'update_data');
 add_action('plugins_loaded', 'sf_db_check');
 
 add_action('activated_plugin','save_error');
@@ -72,7 +72,8 @@ function outreach_install(){
 	  time timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 	  outreach_id int(11) DEFAULT NULL,
 	  position_id int(11) DEFAULT NULL,
-	  target_id int(11) DEFAULT NULL,
+	  target int(11) DEFAULT NULL,
+	  approved int(11) DEFAULT NULL,
 	  advertise tinyint(1) DEFAULT NULL,
 	  PRIMARY KEY  (id)
 	) ;";
@@ -80,108 +81,83 @@ function outreach_install(){
 	add_option("sf_db_version", $sf_db_version);
 }
 
-function outreach_install_data(){
+function update_data(){
 	global $wpdb;
 	$options = get_option('outreach_options');
 	$outreaches = outputOpportunities(array("outreach__c"), "Opportunity");
 	$positions = outputOpportunities(array("Type_of_Volunteer__c"), "Opportunity");
-	$table_name = $wpdb->prefix . "outreaches";
-
+	$outreach_table_name = $wpdb->prefix . "outreaches";
+	$position_table_name = $wpdb->prefix . "outreach_positions";
+	$join_table_name = $wpdb->prefix . "outreach_positions_join";
+	
 	foreach ($outreaches as $outreach){
-		$query = "SELECT id FROM " . $table_name . " WHERE label = '" . $outreach->label . "'";
+		$query = "SELECT id FROM " . $outreach_table_name . " WHERE label = '" . $outreach->label . "'";
 		if($wpdb->query($query) === 0){
-			$rows_affected = $wpdb->insert( $table_name, array( 'active' => $outreach->active, 'defaultValue' => $outreach->defaultValue, 
+			$rows_affected = $wpdb->insert( $outreach_table_name, array( 'active' => $outreach->active, 'defaultValue' => $outreach->defaultValue, 
 															'label' => $outreach->label, 'value' => $outreach->value,
 															'display' => true));
 		}
 	}
 	
-	$table_name = $wpdb->prefix . "outreach_positions";
 	foreach ($positions as $position){
-		$query = "SELECT id FROM " . $table_name . " WHERE label = '" . $position->label . "'";
+		$query = "SELECT id FROM " . $position_table_name . " WHERE label = '" . $position->label . "'";
 		if($wpdb->query($query) === 0){
-			$rows_affected = $wpdb->insert( $table_name, array( 'active' => $position->active, 'defaultValue' => $position->defaultValue, 
-															'label' => $position->label, 'value' => $position->value,
-															'advertise' => false));
+			$rows_affected = $wpdb->insert( $position_table_name, array( 'active' => $position->active, 'defaultValue' => $position->defaultValue, 
+															'label' => $position->label, 'value' => $position->value));
+		}
+	}
+	
+	//Lets get all approved applicant from salesforce and put them in our join table
+	foreach ($outreaches as $outreach){
+		foreach ($positions as $position){
+			$approved = getApprovedApplicantsForPosition($outreach->label, $position->label);
+			$oresults = $wpdb->get_row(
+				"
+				SELECT * from $outreach_table_name
+				WHERE label = '$outreach->label'
+				"
+			);
+			
+			$presults = $wpdb->get_row(
+				"
+				SELECT * from $position_table_name
+				WHERE label = '$position->label'
+				"
+			);
+			
+			$query = $wpdb->get_row(
+				"
+				SELECT * FROM $join_table_name 
+				WHERE outreach_id = $oresults->id 
+				AND position_id = $presults->id
+				");
+			if(!$query){
+				$rows_affected = $wpdb->insert( $join_table_name, array( 'advertise' => false, 'approved' => $approved, 
+																'target' => 0, 'outreach_id' => $oresults->id,
+																'position_id' => $presults->id));
+			}
+			
+			$qapproved = isset($query->approved) ? $query->approved : 0;
+			if($approved != $qapproved){
+				$rows_affected = $wpdb->update( $join_table_name, array( 'approved' => $approved ),
+																  array( 'outreach_id' => $oresults->id,
+																  'position_id' => $presults->id));				
+			}
 		}
 	}
 }
 
 function plugin_admin_init() {
 	register_setting( 'outreach_options', 'outreach_options' );
-	add_settings_section('outreach_main', 'Outreach Settings', 'outreach_section_text', 'outreach_options');
-	//updateOpportunities();
-	$outreaches = get_option('outreach_options');
-	output_all_setting_fields($outreaches);
+	output_all_setting_fields();
 
-}
-
-function updateOpportunities(){
-	$options = get_option('outreach_options');
-	$outreaches = outputOpportunities(array("outreach__c"), "Opportunity");
-	$positions = outputOpportunities(array("Type_of_Volunteer__c"), "Opportunity");
-	
-	//Lets check to see if we need to add any new outreaches to our wordpress cache
-	$values = array_flatten_recursive((array)$options);
-	foreach ($outreaches as $outreach){
-		if(!in_array($outreach->value, $values, true)){
-
-			//Build our data model
-			$outreach->show = true;
-			$outreach->positions = $positions;
-			foreach ($outreach->positions as $position){
-				$position->target = 0;
-				$position->advertise = false;
-			}
-			//Add the new outreach to our existing data
-			$options[] = $outreach;
-			//Update our database to add the new outreach from salesforce
-			update_option('outreach_options', $options);
-
-		}
-	}
-	
-	//Lets check to see if we need to add any new positions to our wordpress cache
-	foreach ($positions as $position){
-		if(!in_array($position->value, $values, true)){
-			//Build our data model
-			foreach ($options as $option){
-				$position->target = 0;
-				$position->advertise = false;
-				$option->positions[] = $position;
-
-			}
-			//Add the new position to our existing data
-			$options[] = $option;
-			
-			//Update our database to add the new outreach from salesforce
-			update_option('outreach_options', $options);
-
-		}
-	}
-}
-
-function array_flatten_recursive($array) { 
-   if (!$array) return false;
-   $flat = array();
-   $RII = new RecursiveIteratorIterator(new RecursiveArrayIterator($array));
-   foreach ($RII as $value) $flat[] = $value;
-   return $flat;
 }
 
 function plugin_admin_add_page() {
 	add_options_page('Outreach Opportunities', 'Outreach Opportunities', 'manage_options', 'sfdc', 'sfdc_options_page');
 }
 
-function outreach_options_validate($input) {
-	$newinput['text_string'] = trim($input['text_string']);
-	if(!preg_match('/^[0-9]{32}$/i', $newinput['text_string'])) {
-		$newinput['text_string'] = '';
-	}
-	return $newinput;
-}
-
-function output_all_setting_fields($outreaches){
+function output_all_setting_fields(){
 	global $wpdb;
 	$outreach_table_name = $wpdb->prefix . "outreaches";
 	$position_table_name = $wpdb->prefix . "outreach_positions";
@@ -189,7 +165,7 @@ function output_all_setting_fields($outreaches){
 	
 	$outreaches = $wpdb->get_results( 
 		"
-		SELECT value, label 
+		SELECT * 
 		FROM $outreach_table_name
 		WHERE active = true 
 			AND display = true
@@ -198,44 +174,43 @@ function output_all_setting_fields($outreaches){
 	
 	$positions = $wpdb->get_results( 
 		"
-		SELECT value, label 
+		SELECT * 
 		FROM $position_table_name
 		WHERE active = true 
 		"
 	);
 	
-	$target = $wpdb->get_results( 
-		"
-		SELECT * FROM $join_table_name a
-		INNER JOIN $outreach_table_name b 
-		ON b.id = a.outreach_id
-		INNER JOIN $position_table_name c
-		ON a.position_id = c.id
-		"
-	);
-		echo "<pre>";
-		print_r($target	);
-		echo "</pre>";
-	
 	foreach($outreaches as $key => $outreach){
+		add_settings_section($outreach->label, $outreach->label, 'outreach_section_text', 'outreach_options');
 		foreach($positions as $position){
 			$value = '';
 			$check_value = '';
 			$target = '';
-			if(isset($position->advertise)){
-				if($position->advertise == true){
+			$data = $wpdb->get_row( 
+				"
+				SELECT * FROM $join_table_name a
+				INNER JOIN $outreach_table_name b 
+				ON b.id = a.outreach_id
+				INNER JOIN $position_table_name c
+				ON a.position_id = c.id
+				WHERE a.outreach_id = $outreach->id
+				AND a.position_id = $position->id
+				"
+			);
+			
+			if(isset($data->advertise)){
+				if($data->advertise == true){
 					$check_value = "checked=yes";
 				}
 			}
-			if(isset($position->target)){
-				$target = $position->target;
+			if(isset($data->target)){
+				$target = $data->target;
 			}
 			add_settings_field( $outreach->value."-".$position->value, $position->value, 'outreach_setting_field', 'outreach_options',
-									'outreach_main', array('label_for' => $outreach->value."-".$position->value, 'id' => array(
-									'key' => $key, 'outreach' => $outreach->value, 'position' => $position->value, 
-									'checked' => $check_value, 'target' => $target ) ));
+									$outreach->label, array('label_for' => $outreach->value."-".$position->value, 'id' => array(
+									'outreach' => $outreach->value, 'position' => $position->value, 
+									'checked' => $data->advertise, 'target' => $data->target, 'approved' => $data->approved ) ));
 		}
-
 	}
 }
 
@@ -244,61 +219,22 @@ function outreach_setting_field($input) {
 	$position	= $input['id']['position'];
 	$value	 	= $input['id']['target'];
 	$checked 	= $input['id']['checked'];
-	$key 		= $input['id']['key'];
+	$approved 	= $input['id']['approved'];
 		
 	echo "<input id='advertise-".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][checked]'
 //			type='checkbox' value='true' $checked />";
-	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$key."]->positions[".$position."][target]' size='5' 
+	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$position."][target]' size='5' 
 			type='text' value='$value' />";
+	echo "Approved: ".$approved;
 }
 
 function outreach_section_text() {
-echo '<p>Main description of this section here.</p>';
+	echo "<input name='Submit' type='submit' value='Save all changes' />";
 }
 
 function sfdc_options_page(){
 	global $wpdb;
-	//$table_name = $wpdb->prefix . "mcpd_currency";
 	include(SFDC_PATH . '/options.php');
-}
-
-function start() {
-
-	
-	$client = getConnection();
-	$values = $client->describeSObject($searchObject);
-	
-	//Get the object (or field) in which our field name resides 
-	$items 	= searchForField($values->fields, $searchFieldName, "name");
-	
-	//Check and see if the form has been posted. If so display our photos
-	$opp = '';
-	if(isset($_POST[$searchObject])){
-		$opp = $_POST[$searchObject];
-		if ($opp == 'showAll'){
-			$client = getConnection();
-			$values = $client->describeSObject($searchObject);
-			foreach($items->picklistValues as $pickItem){
-				getContactPhotosForOpportunity($pickItem->value);
-			}
-		} else {
-			getContactPhotosForOpportunity($opp);
-		}
-	}
-	
-	//Display our opportunity drop down menu
-	$values = NULL;
-	$values = $client->describeSObject($searchObject);
-	$outreaches = searchForField($values->fields, "outreach__c", "name");
-	$positions	= searchForField($values->fields, "Type_of_Volunteer__c", "name");
-	
-	foreach($outreaches->picklistValues as $outreach){
-		echo "<h1>" . $outreach->value . "</h1>";
-		foreach($positions->picklistValues as $position){
-			echo "<h3>" . $position->value . "</h3>";
-			//getNeededApplicantsForPosition($outreach->value, $position->value);
-		}
-	}
 }
 
 function searchForField($myObjects, $value, $key){
@@ -385,6 +321,19 @@ function getNeededApplicantsForPosition($outreach, $volunteerType){
 								AND outreach__c = '$outreach' AND StageName = 'Approved Applicant')");
 
 	//TODO add logic to get the target value of positions minus actual positions filled
+	
+}
+
+function getApprovedApplicantsForPosition($outreach, $volunteerType){
+	
+	$client = getConnection();
+	$results = $client->query("SELECT ContactId FROM OpportunityContactRole 
+								WHERE OpportunityId in (SELECT Id FROM Opportunity 
+								WHERE Type_of_Volunteer__c INCLUDES ('$volunteerType') 
+								AND outreach__c = '$outreach' AND StageName = 'Approved Applicant')");
+
+	//TODO add logic to get the target value of positions minus actual positions filled
+	return $results->size;
 }
 
 
