@@ -11,6 +11,7 @@ License: GPL2
 
 add_action('admin_menu', 'plugin_admin_add_page');
 add_action('admin_init', 'plugin_admin_init');
+add_shortcode( 'outreaches', 'outreach_shortcode' );
 @define('SFDC_PATH', dirname(__FILE__));
 require_once('connection.php');
 
@@ -26,8 +27,9 @@ function save_error(){
 }
 
 //Set our custom field name and object it belongs to
-$searchFieldName 	= "outreach__c";
+$searchFieldName 	= "PNG_Outreach__c";
 $searchObject 		= "Opportunity";
+
 
 function sf_db_check() {
     global $sf_db_version;
@@ -84,12 +86,13 @@ function outreach_install(){
 function update_data(){
 	global $wpdb;
 	$options = get_option('outreach_options');
-	$outreaches = outputOpportunities(array("outreach__c"), "Opportunity");
+	$outreaches = outputOpportunities(array("PNG_Outreach__c"), "Opportunity");
 	$positions = outputOpportunities(array("Type_of_Volunteer__c"), "Opportunity");
 	$outreach_table_name = $wpdb->prefix . "outreaches";
 	$position_table_name = $wpdb->prefix . "outreach_positions";
 	$join_table_name = $wpdb->prefix . "outreach_positions_join";
-	
+	$approvedApplicants = getAllApprovedApplicants();
+
 	foreach ($outreaches as $outreach){
 		$query = "SELECT id FROM " . $outreach_table_name . " WHERE label = '" . $outreach->label . "'";
 		if($wpdb->query($query) === 0){
@@ -110,7 +113,6 @@ function update_data(){
 	//Lets get all approved applicant from salesforce and put them in our join table
 	foreach ($outreaches as $outreach){
 		foreach ($positions as $position){
-			$approved = getApprovedApplicantsForPosition($outreach->label, $position->label);
 			$oresults = $wpdb->get_row(
 				"
 				SELECT * from $outreach_table_name
@@ -131,6 +133,7 @@ function update_data(){
 				WHERE outreach_id = $oresults->id 
 				AND position_id = $presults->id
 				");
+			$approved = getApprovedApplicantsForPosition($outreach->label, $position->label, $approvedApplicants);
 			if(!$query){
 				$rows_affected = $wpdb->insert( $join_table_name, array( 'advertise' => false, 'approved' => $approved, 
 																'target' => 0, 'outreach_id' => $oresults->id,
@@ -147,8 +150,62 @@ function update_data(){
 	}
 }
 
+function update_post_data(){
+	global $wpdb;
+	$join_table_name = $wpdb->prefix . "outreach_positions_join";
+	$outreach_table_name = $wpdb->prefix . "outreaches";
+	$position_table_name = $wpdb->prefix . "outreach_positions";
+	$outreaches = $_POST['outreach_options'];
+
+	foreach($outreaches as $okey => $outreach){
+		if(isset($outreach['checked'])){
+			$checked = true;				
+		} else {
+			$checked = false;
+		}
+		$rows_affected = $wpdb->update(
+			$outreach_table_name, 
+			array( 	'display' => $checked),
+			array( 	'label'   => $okey));
+		if(isset($outreach['positions'])){
+			foreach ($outreach['positions'] as $pkey => $position){
+				$oresults = $wpdb->get_row(
+					"
+					SELECT * from $outreach_table_name
+					WHERE label = '$okey'
+					"
+				);
+
+				$presults = $wpdb->get_row(
+					"
+					SELECT * from $position_table_name
+					WHERE label = '$pkey'
+					"
+				);
+				if(isset($position['checked'])){
+					$checked = true;				
+				} else {
+					$checked = false;
+				}
+				$rows_affected = $wpdb->update(
+					$join_table_name, 
+					array( 	'target' => $position['target'], 'advertise' => $checked ),
+					array( 	'outreach_id' 	=> $oresults->id,
+							'position_id' 	=> $presults->id));
+			}
+		}
+	}
+}
+
 function plugin_admin_init() {
 	register_setting( 'outreach_options', 'outreach_options' );
+	register_setting( 'inactive_outreaches', 'inactive_outreaches' );
+	if(isset($_POST['Submit'])){
+		update_post_data();
+	}
+	if(isset($_GET['sf-refresh'])){
+		update_data();
+	}
 	output_all_setting_fields();
 
 }
@@ -168,7 +225,6 @@ function output_all_setting_fields(){
 		SELECT * 
 		FROM $outreach_table_name
 		WHERE active = true 
-			AND display = true
 		"
 	);
 	
@@ -179,9 +235,132 @@ function output_all_setting_fields(){
 		WHERE active = true 
 		"
 	);
+	$inactives = array();
+	foreach($outreaches as $key => $outreach){
+		$check_value = '';
+		if(isset($outreach->display)){
+			if($outreach->display == true){
+				add_settings_section($outreach->label, $outreach->label, 'outreach_section_text', 'outreach_options');
+				$check_value = "checked=yes";
+				add_settings_field($outreach->value, '', 'outreach_display_field', 'outreach_options', 
+									$outreach->label, array('label_for' => 'display - '.$outreach->value,
+									'id' => array( 'outreach' => $outreach->value, 
+									'checked' => $check_value, 'text' => 'Display this outreach?' ) ));
+				foreach($positions as $position){
+					$value = '';
+					$check_value = '';
+					$target = '';
+					$data = $wpdb->get_row( 
+						"
+						SELECT * FROM $join_table_name a
+						INNER JOIN $outreach_table_name b 
+						ON b.id = a.outreach_id
+						INNER JOIN $position_table_name c
+						ON a.position_id = c.id
+						WHERE a.outreach_id = $outreach->id
+						AND a.position_id = $position->id
+						"
+					);
+					if(isset($data->advertise)){
+						if($data->advertise == true){
+							$check_value = "checked=yes";
+						}
+					}
+					if(isset($data->target)){
+						$target = $data->target;
+					}
+					add_settings_field( $outreach->value."-".$position->value, $position->value, 'outreach_setting_field', 'outreach_options',
+											$outreach->label, array('label_for' => $outreach->value."-".$position->value, 'id' => array(
+											'outreach' => $outreach->value, 'position' => $position->value, 
+											'checked' => $check_value, 'target' => $target, 'approved' => $data->approved ) ));
+				}
+			} else {
+				$inactives[] = $outreach;
+			}
+		}	
+	}
+	if ($inactives){
+		add_settings_section('inactive_outreaches', 'Reactivate Outreach', 'inactive_outreach_section_text', 'inactive_outreaches');				
+		foreach($inactives as $outreach){
+			add_settings_field('inactive'.$outreach->value, $outreach->value, 'outreach_display_field', 'inactive_outreaches', 
+								'inactive_outreaches', array('label_for' => 'display - '.$outreach->value,
+								'id' => array( 'outreach' => $outreach->value, 'text' => '',
+								'checked' => '' ) ));
+		}
+	}
+}
+
+function outreach_setting_field($input) {
+	$outreach 	= $input['id']['outreach'];
+	$position	= $input['id']['position'];
+	$value	 	= $input['id']['target'];
+	$checked 	= $input['id']['checked'];
+	$approved 	= $input['id']['approved'];
+		
+	echo "<input id='advertise - ".$outreach."-".$position."' name='outreach_options[".$outreach."][positions][".$position."][checked]'
+			type='checkbox' value='true' $checked />";
+	echo "<input id='target - ".$outreach."-".$position."' name='outreach_options[".$outreach."][positions][".$position."][target]' size='5' 
+			type='text' value='$value' />";
+	echo "Approved: ".$approved;
+}
+
+function outreach_display_field($input) {
+	$outreach 	= $input['id']['outreach'];
+	$text		= $input['id']['text'];
+	$checked	= $input['id']['checked'];
+	echo "<input id='display - ".$outreach."' name='outreach_options[".$outreach."][checked]'
+			type='checkbox' value='true' $checked/> ".$text;
+}
+
+function outreach_section_text() {
+	//echo "<input name='Submit' type='submit' value='Save all changes' />";
+}
+
+function inactive_outreach_section_text() {
+	echo "Check and save to reactivate an outreach below";
+}
+
+function sfdc_options_page(){
+	global $wpdb;
+	include(SFDC_PATH . '/options.php');
+}
+
+function outreach_shortcode(){
+	global $wpdb;
+	$outreach_table_name = $wpdb->prefix . "outreaches";
+	$position_table_name = $wpdb->prefix . "outreach_positions";
+	$join_table_name = $wpdb->prefix . "outreach_positions_join";
+	
+	$outreaches = $wpdb->get_results( 
+		"
+		SELECT * 
+		FROM $outreach_table_name
+		WHERE active = true 
+			AND display = true
+		"
+	);
+	
+	$positions = $wpdb->get_results( 
+		"
+		SELECT * 
+		FROM $position_table_name a
+		WHERE active = true 
+		"
+	);
 	
 	foreach($outreaches as $key => $outreach){
-		add_settings_section($outreach->label, $outreach->label, 'outreach_section_text', 'outreach_options');
+		$result = $wpdb->get_row( 
+			"
+			SELECT SUM(a.target) total
+			FROM $join_table_name a
+			INNER JOIN $outreach_table_name b 
+			ON b.id = a.outreach_id
+			WHERE b.label = '$outreach->label'
+			AND a.advertise = true
+			"
+		);
+		
+		if($result->total){ echo "<h1><u>".$outreach->label."</u></h1>"; };
 		foreach($positions as $position){
 			$value = '';
 			$check_value = '';
@@ -195,46 +374,31 @@ function output_all_setting_fields(){
 				ON a.position_id = c.id
 				WHERE a.outreach_id = $outreach->id
 				AND a.position_id = $position->id
+				AND a.advertise = true
 				"
 			);
-			
-			if(isset($data->advertise)){
-				if($data->advertise == true){
-					$check_value = "checked=yes";
+			if($data){
+				if(isset($data->advertise)){
+					if($data->advertise == true){
+						$check_value = "checked=yes";
+					}
+				}
+				if(isset($data->target)){
+					$target = $data->target;
+				}
+				$needed = $data->target - $data->approved;
+				if ($needed > 0){
+					//Output data
+					echo "<h2>".$position->value."</h2>";
+					echo "<p><b>".$needed."</b> Positions Available</p>";
+				} else {
+					//echo "<p>Please enquire about available positions</p>";
 				}
 			}
-			if(isset($data->target)){
-				$target = $data->target;
-			}
-			add_settings_field( $outreach->value."-".$position->value, $position->value, 'outreach_setting_field', 'outreach_options',
-									$outreach->label, array('label_for' => $outreach->value."-".$position->value, 'id' => array(
-									'outreach' => $outreach->value, 'position' => $position->value, 
-									'checked' => $data->advertise, 'target' => $data->target, 'approved' => $data->approved ) ));
 		}
 	}
-}
-
-function outreach_setting_field($input) {
-	$outreach 	= $input['id']['outreach'];
-	$position	= $input['id']['position'];
-	$value	 	= $input['id']['target'];
-	$checked 	= $input['id']['checked'];
-	$approved 	= $input['id']['approved'];
-		
-	echo "<input id='advertise-".$outreach."-".$position."' name='outreach_options[".$outreach."][".$position."][checked]'
-//			type='checkbox' value='true' $checked />";
-	echo "<input id='".$outreach."-".$position."' name='outreach_options[".$position."][target]' size='5' 
-			type='text' value='$value' />";
-	echo "Approved: ".$approved;
-}
-
-function outreach_section_text() {
-	echo "<input name='Submit' type='submit' value='Save all changes' />";
-}
-
-function sfdc_options_page(){
-	global $wpdb;
-	include(SFDC_PATH . '/options.php');
+	
+	return;
 }
 
 function searchForField($myObjects, $value, $key){
@@ -318,22 +482,36 @@ function getNeededApplicantsForPosition($outreach, $volunteerType){
 	$results = $client->query("SELECT ContactId FROM OpportunityContactRole 
 								WHERE OpportunityId in (SELECT Id FROM Opportunity 
 								WHERE Type_of_Volunteer__c INCLUDES ('$volunteerType') 
-								AND outreach__c = '$outreach' AND StageName = 'Approved Applicant')");
+								AND PNG_Outreach__c = '$outreach' AND StageName = 'Approved Applicant')");
 
 	//TODO add logic to get the target value of positions minus actual positions filled
 	
 }
 
-function getApprovedApplicantsForPosition($outreach, $volunteerType){
+function getApprovedApplicantsForPosition($outreach, $volunteerType, $data){
+	$count = 0;
+	foreach($data->records as $record){
+
+		$o = $record->fields->Opportunity->fields->PNG_Outreach__c;
+		$v = $record->fields->Opportunity->fields->Type_of_Volunteer__c;
+
+		if(strpos($o, $outreach) !== false && strpos($v, $volunteerType) !== false){
+			$count++;
+		}
+	}
+
+	return $count;
+}
+
+function getAllApprovedApplicants(){
 	
 	$client = getConnection();
-	$results = $client->query("SELECT ContactId FROM OpportunityContactRole 
+	$results = $client->query("SELECT ContactId, OpportunityId, 
+								Opportunity.Id, Opportunity.Name, Opportunity.PNG_Outreach__c, Opportunity.Type_of_Volunteer__c 
+								FROM OpportunityContactRole 
 								WHERE OpportunityId in (SELECT Id FROM Opportunity 
-								WHERE Type_of_Volunteer__c INCLUDES ('$volunteerType') 
-								AND outreach__c = '$outreach' AND StageName = 'Approved Applicant')");
-
-	//TODO add logic to get the target value of positions minus actual positions filled
-	return $results->size;
+								WHERE StageName = 'Approved Application')");
+	return $results;
 }
 
 
@@ -363,4 +541,11 @@ function getPhotos($contactids){
 	return NULL;
 }
 
+function array_flatten_recursive($array) { 
+   if (!$array) return false;
+   $flat = array();
+   $RII = new RecursiveIteratorIterator(new RecursiveArrayIterator($array));
+   foreach ($RII as $value) $flat[] = $value;
+   return $flat;
+}
 ?>
