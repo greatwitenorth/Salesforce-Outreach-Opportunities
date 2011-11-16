@@ -20,6 +20,7 @@ $sf_db_version = "1.0";
 register_activation_hook(__FILE__,'outreach_install');
 register_activation_hook(__FILE__,'update_data');
 add_action('plugins_loaded', 'sf_db_check');
+add_action('admin_footer', 'outreach_admin_footer');
 
 add_action('activated_plugin','save_error');
 function save_error(){
@@ -52,6 +53,8 @@ function outreach_install(){
 	  label varchar(255) DEFAULT NULL,
 	  value varchar(255) DEFAULT NULL,
 	  display tinyint(1) DEFAULT NULL,
+	  start_date date DEFAULT NULL,
+	  end_date date DEFAULT NULL,
 	  PRIMARY KEY  (id)
 	) ;";
 	dbDelta($sql);
@@ -98,7 +101,7 @@ function update_data(){
 		if($wpdb->query($query) === 0){
 			$rows_affected = $wpdb->insert( $outreach_table_name, array( 'active' => $outreach->active, 'defaultValue' => $outreach->defaultValue, 
 															'label' => $outreach->label, 'value' => $outreach->value,
-															'display' => true));
+															'display' => false));
 		}
 	}
 	
@@ -157,6 +160,8 @@ function update_post_data(){
 	$position_table_name = $wpdb->prefix . "outreach_positions";
 	$outreaches = $_POST['outreach_options'];
 
+	//update_data();
+
 	foreach($outreaches as $okey => $outreach){
 		if(isset($outreach['checked'])){
 			$checked = true;				
@@ -194,24 +199,78 @@ function update_post_data(){
 							'position_id' 	=> $presults->id));
 			}
 		}
+		if(isset($outreach['dates'])){
+			$oresults = $wpdb->get_row(
+				"
+				SELECT * from $outreach_table_name
+				WHERE label = '$okey'
+				"
+			);
+			$rows_affected = $wpdb->update(
+				$outreach_table_name, 
+				array( 	'start_date' => $outreach['dates']['start'], 'end_date' => $outreach['dates']['end'] ),
+				array( 	'label' => $okey ));
+		}
 	}
 }
 
 function plugin_admin_init() {
 	register_setting( 'outreach_options', 'outreach_options' );
 	register_setting( 'inactive_outreaches', 'inactive_outreaches' );
+	register_setting( 'outreach_dates', 'outreach_dates' );
+	$pluginfolder = get_bloginfo('url') . '/' . PLUGINDIR . '/' . dirname(plugin_basename(__FILE__));
+	wp_enqueue_script('jquery');
+	wp_enqueue_script('jquery-ui-core');
+	wp_enqueue_script('jquery-ui-datepicker', $pluginfolder . '/js/jquery.ui.datepicker.min.js', array('jquery', 'jquery-ui-core') );
+	wp_enqueue_script('jquery-ui-fader', $pluginfolder . '/js/jquery.effects.fade.min.js', array('jquery', 'jquery-ui-core') );
+	wp_enqueue_style('jquery.ui.theme', $pluginfolder . '/js/redmond/jquery-ui-1.8.16.custom.css');
 	if(isset($_POST['Submit'])){
 		update_post_data();
 	}
 	if(isset($_GET['sf-refresh'])){
 		update_data();
 	}
+	echo "<style>.greenbg{background:#b6da70;
+					padding:1px 5px;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}
+					.redbg{background:#da7f70;
+					padding:1px 5px;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}</style>";
 	output_all_setting_fields();
-
+	output_outreach_dates_field();
 }
 
 function plugin_admin_add_page() {
 	add_options_page('Outreach Opportunities', 'Outreach Opportunities', 'manage_options', 'sfdc', 'sfdc_options_page');
+}
+
+function output_outreach_dates_field(){
+	global $wpdb;
+	$outreach_table_name = $wpdb->prefix . "outreaches";
+	$outreaches = $wpdb->get_results( 
+		"
+		SELECT label, start_date, end_date, value, display
+		FROM $outreach_table_name
+		WHERE active = true 
+		"
+	);
+	add_settings_section('outreach_dates', 'Outreach Dates', 'outreach_dates_section_text', 'outreach_dates');				
+	foreach($outreaches as $key => $outreach){
+		if($outreach->display){
+		add_settings_field('start - '.$outreach->value, $outreach->value." - Start", 'outreach_dates_display_field', 'outreach_dates', 
+							'outreach_dates', array('label_for' => 'start - '.$outreach->value,
+							'id' => array( 'outreach' => $outreach->value, 'text' => 'start',
+							'value' => $outreach->start_date, 'class' => 'datepicker' ) ));
+		add_settings_field('end - '.$outreach->value, $outreach->value." - End", 'outreach_dates_display_field', 'outreach_dates', 
+							'outreach_dates', array('label_for' => 'end - '.$outreach->value,
+							'id' => array( 'outreach' => $outreach->value, 'text' => 'end',
+							'value' => $outreach->end_date, 'class' => 'datepicker') ));
+		}	
+	}
 }
 
 function output_all_setting_fields(){
@@ -280,7 +339,7 @@ function output_all_setting_fields(){
 		}	
 	}
 	if ($inactives){
-		add_settings_section('inactive_outreaches', 'Reactivate Outreach', 'inactive_outreach_section_text', 'inactive_outreaches');				
+		add_settings_section('inactive_outreaches', 'Inactive Outreaches', 'inactive_outreach_section_text', 'inactive_outreaches');				
 		foreach($inactives as $outreach){
 			add_settings_field('inactive'.$outreach->value, $outreach->value, 'outreach_display_field', 'inactive_outreaches', 
 								'inactive_outreaches', array('label_for' => 'display - '.$outreach->value,
@@ -296,12 +355,13 @@ function outreach_setting_field($input) {
 	$value	 	= $input['id']['target'];
 	$checked 	= $input['id']['checked'];
 	$approved 	= $input['id']['approved'];
-		
+	$color 		= $value > $approved ? 'redbg' : 'greenbg';	
+	$color 		= $approved == 0 && $value == 0 ? '' : $color;	
 	echo "<input id='advertise - ".$outreach."-".$position."' name='outreach_options[".$outreach."][positions][".$position."][checked]'
 			type='checkbox' value='true' $checked />";
 	echo "<input id='target - ".$outreach."-".$position."' name='outreach_options[".$outreach."][positions][".$position."][target]' size='5' 
 			type='text' value='$value' />";
-	echo "Approved: ".$approved;
+	echo "Approved: <span class='".$color."'>".$approved."</span>";
 }
 
 function outreach_display_field($input) {
@@ -320,6 +380,21 @@ function inactive_outreach_section_text() {
 	echo "Check and save to reactivate an outreach below";
 }
 
+function outreach_dates_section_text(){	
+	echo "Put in dates for our outreaches";
+}
+
+function outreach_dates_display_field($input) {
+	$outreach 	= $input['id']['outreach'];
+	$text		= $input['id']['text'];
+	$value		= $input['id']['value'];
+	$class 		= $input['id']['class'];
+	
+	if($value == "0000-00-00"){$value = '';}
+	echo "<input id='".$text." - ".$outreach."' class='".$class."' name='outreach_options[".$outreach."][dates][".$text."]'
+			type='text' size='8' value='".$value."' />";
+}
+
 function sfdc_options_page(){
 	global $wpdb;
 	include(SFDC_PATH . '/options.php');
@@ -330,7 +405,9 @@ function outreach_shortcode(){
 	$outreach_table_name = $wpdb->prefix . "outreaches";
 	$position_table_name = $wpdb->prefix . "outreach_positions";
 	$join_table_name = $wpdb->prefix . "outreach_positions_join";
-	
+	$close = '';
+	$i = 0;
+
 	$outreaches = $wpdb->get_results( 
 		"
 		SELECT * 
@@ -347,7 +424,25 @@ function outreach_shortcode(){
 		WHERE active = true 
 		"
 	);
-	
+	echo "<style>.greenbg{background:#b6da70;
+					padding:1px 5px;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}
+				  .redbg{background:#70b8da;
+					padding:1px 5px;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}
+				  .outreachbg{background:#ececec;
+					padding:10px;
+					margin-top: 20px;
+					width: 40%;
+					float: left;
+					margin-right: 5%;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}</style>";
 	foreach($outreaches as $key => $outreach){
 		$result = $wpdb->get_row( 
 			"
@@ -359,8 +454,26 @@ function outreach_shortcode(){
 			AND a.advertise = true
 			"
 		);
-		
-		if($result->total){ echo "<h1><u>".$outreach->label."</u></h1>"; };
+		if($i > 1){
+			$clear = "<div style='clear:both;'></div>";
+			$i = 0;
+		} else {
+			$clear = '';
+		}
+		$close = '';
+		if($result->total){ 
+			$start_date = date('F j', strtotime($outreach->start_date));
+			$end_date = date('F j', strtotime($outreach->end_date));
+			
+			echo $clear;
+			echo "<div class='outreachbg'>";
+			echo "<h1><u>".$outreach->label."</u></h1>";
+			echo "<p><span class='redbg'>".$start_date."</span> - 
+				  <span class='redbg'>".$end_date."</span></p>";
+			
+			$close = "</div>";
+			$i++;
+		}
 		foreach($positions as $position){
 			$value = '';
 			$check_value = '';
@@ -389,13 +502,17 @@ function outreach_shortcode(){
 				$needed = $data->target - $data->approved;
 				if ($needed > 0){
 					//Output data
+					$type = position_type($position->value);
+					echo "<div class='".$type."'>";
 					echo "<h2>".$position->value."</h2>";
-					echo "<p><b>".$needed."</b> Positions Available</p>";
+					echo "<p><span class='greenbg'>".$needed."</span> Positions Available</p>";
+					echo "</div>";
 				} else {
 					//echo "<p>Please enquire about available positions</p>";
 				}
 			}
 		}
+		echo $close;
 	}
 	
 	return;
@@ -451,7 +568,6 @@ function showOpportunityMenu($selected, $fields, $object){
 	echo "<input type='submit' value='Submit' />\n";
 	echo "</form>\n";
 }
-
 
 function getContactPhotosForOpportunity($opp){
 	global $searchObject, $searchFieldName;
@@ -514,6 +630,19 @@ function getAllApprovedApplicants(){
 	return $results;
 }
 
+function position_type($position){
+	if (strstr($position, "Medical")){
+		return "medical";
+	}
+	
+	if (strstr($position, "Crew")){
+		return "crew";
+	}
+	
+	if (strstr($position, "General")){
+		return "general";
+	}
+}
 
 function getPhotos($contactids){
 	$mySforceConnection = getConnection();
@@ -548,4 +677,17 @@ function array_flatten_recursive($array) {
    foreach ($RII as $value) $flat[] = $value;
    return $flat;
 }
+
+function outreach_admin_footer() {
+	?>
+	<script type="text/javascript">
+	jQuery(document).ready(function(){
+		jQuery('.datepicker').datepicker({
+			dateFormat : 'yy-mm-dd'
+		});
+	});
+	</script>
+	<?php
+}
+
 ?>

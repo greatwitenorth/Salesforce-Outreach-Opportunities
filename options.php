@@ -13,9 +13,15 @@
 			<input name="Submit" type="submit" value="<?php esc_attr_e('Save Changes'); ?>" />
 			</p>
 	</div>
-	<div style='float:left; width: 40%;'>
+	<div style='float:left; width: 40%;margin-top: 10px;'>
 		<?php settings_fields( 'inactive_outreaches' ); ?>
 		<?php do_settings_sections( 'inactive_outreaches' ); ?>
+		<p class="submit">
+		<input name="Submit" type="submit" value="<?php esc_attr_e('Save Changes'); ?>" />
+		</p>
+		
+		<?php settings_fields( 'outreach_dates' ); ?>
+		<?php do_settings_sections( 'outreach_dates' ); ?>
 		<p class="submit">
 		<input name="Submit" type="submit" value="<?php esc_attr_e('Save Changes'); ?>" />
 		</p>
