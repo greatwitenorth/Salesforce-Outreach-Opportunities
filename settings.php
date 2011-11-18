@@ -3,8 +3,7 @@
 		.form-table{ background: #ececec; }
 		h3{ margin-top: 40px;}
 	</style>
-<a href="<?php echo $_SERVER['PHP_SELF']; ?>?page=sfdc&sf-refresh=true">Refresh data from salesforce</a>
-<form method="post" action="<?php echo $_SERVER['PHP_SELF']; ?>?page=sfdc">
+<form method="post" action="<?php echo $_SERVER['REQUEST_URI']; ?>">
 	<div style='float:left; width: 55%; margin-right: 5%;'>
 		<h2>Outreach Positions</h2>
 			<?php settings_fields( 'outreach_options' ); ?>

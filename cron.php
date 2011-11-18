@@ -22,6 +22,7 @@ register_activation_hook(__FILE__,'update_data');
 add_action('plugins_loaded', 'sf_db_check');
 add_action('admin_footer', 'outreach_admin_footer');
 
+//Save our errors for debugging
 add_action('activated_plugin','save_error');
 function save_error(){
     update_option('plugin_error',  ob_get_contents());
@@ -381,7 +382,7 @@ function inactive_outreach_section_text() {
 }
 
 function outreach_dates_section_text(){	
-	echo "Put in dates for our outreaches";
+	echo "";
 }
 
 function outreach_dates_display_field($input) {
@@ -400,14 +401,21 @@ function sfdc_options_page(){
 	include(SFDC_PATH . '/options.php');
 }
 
-function outreach_shortcode(){
+function outreach_shortcode($atts){
 	global $wpdb;
 	$outreach_table_name = $wpdb->prefix . "outreaches";
 	$position_table_name = $wpdb->prefix . "outreach_positions";
 	$join_table_name = $wpdb->prefix . "outreach_positions_join";
 	$close = '';
 	$i = 0;
-
+	
+	if(isset($_GET['sf-refresh'])){
+		update_data();
+	}
+	extract( shortcode_atts( array(
+			'showtable' => 'true'
+	), $atts ) );
+	
 	$outreaches = $wpdb->get_results( 
 		"
 		SELECT * 
@@ -424,6 +432,31 @@ function outreach_shortcode(){
 		WHERE active = true 
 		"
 	);
+	
+	$years = $wpdb->get_results(
+		"
+		SELECT DISTINCT YEAR(start_date) 
+		AS 'Year' FROM $outreach_table_name
+		"
+		);
+
+	$years = array_flatten_recursive((array)$years);
+
+	if($atts['showtable'] == 'true'){
+		foreach($years as $year){
+			$o = $wpdb->get_results( 
+				"
+				SELECT * 
+				FROM $outreach_table_name
+				WHERE active = true 
+				AND display = true
+				AND year(start_date) = $year
+				"
+			);
+			$year ? showTable($o, $positions, $year) : false;
+		}
+		return;
+	}
 	echo "<style>.greenbg{background:#b6da70;
 					padding:1px 5px;
 					-moz-border-radius: 5px;
@@ -491,24 +524,13 @@ function outreach_shortcode(){
 				"
 			);
 			if($data){
-				if(isset($data->advertise)){
-					if($data->advertise == true){
-						$check_value = "checked=yes";
-					}
-				}
-				if(isset($data->target)){
-					$target = $data->target;
-				}
 				$needed = $data->target - $data->approved;
 				if ($needed > 0){
 					//Output data
 					$type = position_type($position->value);
 					echo "<div class='".$type."'>";
-					echo "<h2>".$position->value."</h2>";
-					echo "<p><span class='greenbg'>".$needed."</span> Positions Available</p>";
+					echo "<p><span class='greenbg'>".$needed."</span> ".$position->value."</p>";
 					echo "</div>";
-				} else {
-					//echo "<p>Please enquire about available positions</p>";
 				}
 			}
 		}
@@ -678,6 +700,106 @@ function array_flatten_recursive($array) {
    return $flat;
 }
 
+function showTable($outreaches, $positions, $year){
+
+	
+?>
+<h2><?php echo $year ?> Outreaches</h2>
+<table border="1">
+	<tbody>
+		<tr>
+			<td>
+				<h3><strong>Dates</strong></h3>
+			</td>
+			<td>
+				<h3><strong>PHC</strong></h3>
+			</td>
+			<td>
+				<h3><strong>DEN</strong></h3>
+			</td>
+			<td>
+				<h3><strong>OPT</strong></h3>
+			</td>
+			<td>
+				<h3><strong>OPH</strong></h3>
+			</td>
+			<td>
+				<h3><strong>Crew</strong></h3>
+			</td>
+			<td>
+				<h3><strong>GEN</strong></h3>
+			</td>
+			<td></td>
+		</tr>
+<?php
+	foreach($outreaches as $outreach){
+		$start = date('F j', strtotime($outreach->start_date));
+		$end = date('F j', strtotime($outreach->end_date));
+		$total = tallyPositionGroups($outreach, $year);
+?>
+		<tr>
+			<td><?php echo $start . " - " . $end ?></td>
+			<td><?php echo $total['phc'] ?></td>
+			<td><?php echo $total['den'] ?></td>
+			<td><?php echo $total['opt'] ?></td>
+			<td><?php echo $total['oph'] ?></td>
+			<td><?php echo $total['crew'] ?></td>
+			<td><?php echo $total['gen'] ?></td>
+			<td>
+				<div class="button-wrap ">
+				<div class="blue button ">
+				<a href="/volunteer/sign-up/online-application/"  >Register Now!</a>
+				</div></div>
+			</td>
+		</tr>
+<?php }?>
+	</tbody>
+</table>
+<?php	
+}
+
+function tallyPositionGroups($outreach, $year){
+	global $wpdb;
+	$outreach_table_name = $wpdb->prefix . "outreaches";
+	$position_table_name = $wpdb->prefix . "outreach_positions";
+	$join_table_name = $wpdb->prefix . "outreach_positions_join";
+	$phc 	= "a.position_id IN (19, 20, 21, 22, 29, 30, 31, 32)";
+	$den 	= "a.position_id BETWEEN '15' AND '18'";
+	$opt 	= "a.position_id BETWEEN '26' AND '27'";
+	$oph 	= "a.position_id IN (23,24,25,28)";
+	$crew 	= "a.position_id BETWEEN '1' AND '10'";
+	$gen 	= "a.position_id = 13";
+	$tally 	= array('phc' => $phc, 'den' => $den, 
+					'opt' => $opt, 'oph' => $oph, 
+					'crew' => $crew, 'gen' => $gen);
+	
+	foreach($tally as $key => $query){
+		$data = $wpdb->get_row( 
+			"
+			SELECT SUM(target) target, approved FROM $join_table_name a
+			WHERE a.outreach_id = $outreach->id
+			AND advertise = true
+			AND $query
+			"
+		);
+		if($data){
+			$needed = $data->target - $data->approved;
+			if ($needed > 0){
+				$totals[$key] = $needed;
+			} else {
+				$totals[$key] = "-";
+			}
+		}
+	}
+	
+
+	return $totals;
+}
+
+function setDefaultPositionValues(){
+
+}
+
 function outreach_admin_footer() {
 	?>
 	<script type="text/javascript">
@@ -689,5 +811,6 @@ function outreach_admin_footer() {
 	</script>
 	<?php
 }
+
 
 ?>
