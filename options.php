@@ -2,6 +2,7 @@
 	<style>
 		.form-table{ background: #ececec; }
 		h3{ margin-top: 40px;}
+		.location{ margin-bottom: 20px;}
 	</style>
 <a href="<?php echo $_SERVER['PHP_SELF']; ?>?page=sfdc&sf-refresh=true">Refresh data from salesforce</a>
 <form method="post" action="<?php echo $_SERVER['PHP_SELF']; ?>?page=sfdc">

@@ -53,6 +53,7 @@ function outreach_install(){
 	  defaultValue tinyint(1) DEFAULT NULL,
 	  label varchar(255) DEFAULT NULL,
 	  value varchar(255) DEFAULT NULL,
+	  location varchar(255) DEFAULT NULL,
 	  display tinyint(1) DEFAULT NULL,
 	  start_date date DEFAULT NULL,
 	  end_date date DEFAULT NULL,
@@ -209,7 +210,9 @@ function update_post_data(){
 			);
 			$rows_affected = $wpdb->update(
 				$outreach_table_name, 
-				array( 	'start_date' => $outreach['dates']['start'], 'end_date' => $outreach['dates']['end'] ),
+				array( 	'start_date' => $outreach['dates']['start'],
+						'end_date' => $outreach['dates']['end'],
+						'location' => $outreach['dates']['location'] ),
 				array( 	'label' => $okey ));
 		}
 	}
@@ -254,7 +257,7 @@ function output_outreach_dates_field(){
 	$outreach_table_name = $wpdb->prefix . "outreaches";
 	$outreaches = $wpdb->get_results( 
 		"
-		SELECT label, start_date, end_date, value, display
+		SELECT label, start_date, end_date, value, display, location
 		FROM $outreach_table_name
 		WHERE active = true 
 		"
@@ -262,14 +265,23 @@ function output_outreach_dates_field(){
 	add_settings_section('outreach_dates', 'Outreach Dates', 'outreach_dates_section_text', 'outreach_dates');				
 	foreach($outreaches as $key => $outreach){
 		if($outreach->display){
-		add_settings_field('start - '.$outreach->value, $outreach->value." - Start", 'outreach_dates_display_field', 'outreach_dates', 
+		add_settings_field('start - '.$outreach->value, $outreach->value." - Start",
+							'outreach_dates_display_field', 'outreach_dates', 
 							'outreach_dates', array('label_for' => 'start - '.$outreach->value,
 							'id' => array( 'outreach' => $outreach->value, 'text' => 'start',
 							'value' => $outreach->start_date, 'class' => 'datepicker' ) ));
-		add_settings_field('end - '.$outreach->value, $outreach->value." - End", 'outreach_dates_display_field', 'outreach_dates', 
+							
+		add_settings_field('end - '.$outreach->value, $outreach->value." - End",
+							'outreach_dates_display_field', 'outreach_dates', 
 							'outreach_dates', array('label_for' => 'end - '.$outreach->value,
 							'id' => array( 'outreach' => $outreach->value, 'text' => 'end',
 							'value' => $outreach->end_date, 'class' => 'datepicker') ));
+							
+		add_settings_field('location - '.$outreach->value, "Location",
+							'outreach_dates_display_field', 'outreach_dates', 
+							'outreach_dates', array('label_for' => 'location - '.$outreach->value,
+							'id' => array( 'outreach' => $outreach->value, 'text' => 'location',
+							'value' => $outreach->location, 'class' => 'location') ));
 		}	
 	}
 }
@@ -712,6 +724,9 @@ function showTable($outreaches, $positions, $year){
 				<h3><strong>Dates</strong></h3>
 			</td>
 			<td>
+				<h3><strong>Location</strong></h3>
+			</td>
+			<td>
 				<h3><strong>PHC</strong></h3>
 			</td>
 			<td>
@@ -739,6 +754,7 @@ function showTable($outreaches, $positions, $year){
 ?>
 		<tr>
 			<td><?php echo $start . " - " . $end ?></td>
+			<td><?php echo $outreach->location ?></td>
 			<td><?php echo $total['phc'] ?></td>
 			<td><?php echo $total['den'] ?></td>
 			<td><?php echo $total['opt'] ?></td>
