@@ -455,6 +455,7 @@ function outreach_shortcode($atts){
 	$years = array_flatten_recursive((array)$years);
 
 	if($atts['showtable'] == 'true'){
+		ob_start();
 		foreach($years as $year){
 			$o = $wpdb->get_results( 
 				"
@@ -465,9 +466,12 @@ function outreach_shortcode($atts){
 				AND year(start_date) = $year
 				"
 			);
+			
 			$year ? showTable($o, $positions, $year) : false;
 		}
-		return;
+		$output_string=ob_get_contents();;
+		ob_end_clean();
+		return $output_string;
 	}
 	echo "<style>.greenbg{background:#b6da70;
 					padding:1px 5px;
