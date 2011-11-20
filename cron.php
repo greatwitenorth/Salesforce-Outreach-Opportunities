@@ -428,12 +428,33 @@ function outreach_shortcode($atts){
 			'showtable' => 'true'
 	), $atts ) );
 	
+	echo "<style>.greenbg{background:#b6da70;
+					padding:1px 5px;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}
+				  .redbg{background:#70b8da;
+					padding:1px 5px;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}
+				  .outreachbg{background:#ececec;
+					padding:10px;
+					margin-top: 20px;
+					width: 40%;
+					float: left;
+					margin-right: 5%;
+					-moz-border-radius: 5px;
+					-webkit-border-radius: 5px;
+					border-radius: 5px;}</style>";
+	
 	$outreaches = $wpdb->get_results( 
 		"
 		SELECT * 
 		FROM $outreach_table_name
 		WHERE active = true 
-			AND display = true
+		AND display = true
+		ORDER BY date(start_date)
 		"
 	);
 	
@@ -473,25 +494,7 @@ function outreach_shortcode($atts){
 		ob_end_clean();
 		return $output_string;
 	}
-	echo "<style>.greenbg{background:#b6da70;
-					padding:1px 5px;
-					-moz-border-radius: 5px;
-					-webkit-border-radius: 5px;
-					border-radius: 5px;}
-				  .redbg{background:#70b8da;
-					padding:1px 5px;
-					-moz-border-radius: 5px;
-					-webkit-border-radius: 5px;
-					border-radius: 5px;}
-				  .outreachbg{background:#ececec;
-					padding:10px;
-					margin-top: 20px;
-					width: 40%;
-					float: left;
-					margin-right: 5%;
-					-moz-border-radius: 5px;
-					-webkit-border-radius: 5px;
-					border-radius: 5px;}</style>";
+
 	foreach($outreaches as $key => $outreach){
 		$result = $wpdb->get_row( 
 			"
@@ -721,31 +724,37 @@ function showTable($outreaches, $positions, $year){
 	
 ?>
 <h2><?php echo $year ?> Outreaches</h2>
+<h3>Available Positions</h3>
 <table border="1">
 	<tbody>
 		<tr>
-			<td>
-				<h3><strong>Dates</strong></h3>
+			<td></td>
+			<td></td>
+			<td align="center" valign="middle" colspan="6" cellpadding="0">
+				<p>Available Positions</p>
 			</td>
-			<td>
-				<h3><strong>Location</strong></h3>
-			</td>
-			<td>
+			<td></td>			
+		</tr>
+		<tr>
+			<td><h3><strong>Dates</strong></h3></td>
+			<td><h3><strong>Location</strong></h3></td>
+
+			<td align="center" valign="middle">
 				<h3><strong>PHC</strong></h3>
 			</td>
-			<td>
+			<td align="center" valign="middle">
 				<h3><strong>DEN</strong></h3>
 			</td>
-			<td>
+			<td align="center" valign="middle">
 				<h3><strong>OPT</strong></h3>
 			</td>
-			<td>
+			<td align="center" valign="middle">
 				<h3><strong>OPH</strong></h3>
 			</td>
-			<td>
+			<td align="center" valign="middle">
 				<h3><strong>Crew</strong></h3>
 			</td>
-			<td>
+			<td align="center" valign="middle">
 				<h3><strong>GEN</strong></h3>
 			</td>
 			<td></td>
@@ -759,13 +768,13 @@ function showTable($outreaches, $positions, $year){
 		<tr>
 			<td><?php echo $start . " - " . $end ?></td>
 			<td><?php echo $outreach->location ?></td>
-			<td><?php echo $total['phc'] ?></td>
-			<td><?php echo $total['den'] ?></td>
-			<td><?php echo $total['opt'] ?></td>
-			<td><?php echo $total['oph'] ?></td>
-			<td><?php echo $total['crew'] ?></td>
-			<td><?php echo $total['gen'] ?></td>
-			<td>
+			<td align="center" valign="middle"><?php echo $total['phc'] ?></td>
+			<td align="center" valign="middle"><?php echo $total['den'] ?></td>
+			<td align="center" valign="middle"><?php echo $total['opt'] ?></td>
+			<td align="center" valign="middle"><?php echo $total['oph'] ?></td>
+			<td align="center" valign="middle"><?php echo $total['crew'] ?></td>
+			<td align="center" valign="middle"><?php echo $total['gen'] ?></td>
+			<td align="center" valign="middle">
 				<div class="button-wrap ">
 				<div class="blue button ">
 				<a href="/volunteer/sign-up/online-application/"  >Register Now!</a>
