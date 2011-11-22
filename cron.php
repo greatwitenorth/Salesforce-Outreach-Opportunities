@@ -629,10 +629,12 @@ function getContactPhotosForOpportunity($opp, $size){
 	global $searchObject, $searchFieldName;
 
 	$client = getConnection();
-	$results = $client->query("SELECT ContactId FROM OpportunityContactRole 
+	$results = $client->query("SELECT ContactId
+								FROM OpportunityContactRole 
 								WHERE OpportunityId in (SELECT Id FROM Opportunity 
-								WHERE $searchFieldName = '$opp')");
-	
+								WHERE StageName = 'Approved Application'
+								AND $searchFieldName = '$opp')");
+
 	//Display photos for our contact ID's
 	if ($results->size != 0){
 		$ids = array();
