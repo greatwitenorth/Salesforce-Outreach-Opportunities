@@ -425,7 +425,11 @@ function outreach_shortcode($atts){
 		update_data();
 	}
 	extract( shortcode_atts( array(
-			'showtable' => 'true'
+			'showtable' => 'true',
+			'contactid' => '',
+			'showphoto' => 'true',
+			'opportunity' => '',
+			'size' => '200'
 	), $atts ) );
 	
 	echo "<style>.greenbg{background:#b6da70;
@@ -462,7 +466,8 @@ function outreach_shortcode($atts){
 		"
 		SELECT * 
 		FROM $position_table_name a
-		WHERE active = true 
+		WHERE active = true
+		ORDER BY label
 		"
 	);
 	
@@ -487,73 +492,83 @@ function outreach_shortcode($atts){
 				AND year(start_date) = $year
 				"
 			);
-			
 			$year ? showTable($o, $positions, $year) : false;
 		}
 		$output_string=ob_get_contents();;
 		ob_end_clean();
 		return $output_string;
 	}
+	
+	if($atts['showphoto'] == 'true'){
+		ob_start();
+		getContactPhotosForOpportunity($atts['opportunity'], $atts['size']);
+		//getPhotos(array('003C000001GZVvi'));
+		$output_string=ob_get_contents();;
+		ob_end_clean();
+		return $output_string;
+	}
 
-	foreach($outreaches as $key => $outreach){
-		$result = $wpdb->get_row( 
-			"
-			SELECT SUM(a.target) total
-			FROM $join_table_name a
-			INNER JOIN $outreach_table_name b 
-			ON b.id = a.outreach_id
-			WHERE b.label = '$outreach->label'
-			AND a.advertise = true
-			"
-		);
-		if($i > 1){
-			$clear = "<div style='clear:both;'></div>";
-			$i = 0;
-		} else {
-			$clear = '';
-		}
-		$close = '';
-		if($result->total){ 
-			$start_date = date('F j', strtotime($outreach->start_date));
-			$end_date = date('F j', strtotime($outreach->end_date));
-			
-			echo $clear;
-			echo "<div class='outreachbg'>";
-			echo "<h1><u>".$outreach->label."</u></h1>";
-			echo "<p><span class='redbg'>".$start_date."</span> - 
-				  <span class='redbg'>".$end_date."</span></p>";
-			
-			$close = "</div>";
-			$i++;
-		}
-		foreach($positions as $position){
-			$value = '';
-			$check_value = '';
-			$target = '';
-			$data = $wpdb->get_row( 
+	if($atts['showAll'] == 'true'){
+		foreach($outreaches as $key => $outreach){
+			$result = $wpdb->get_row( 
 				"
-				SELECT * FROM $join_table_name a
+				SELECT SUM(a.target) total
+				FROM $join_table_name a
 				INNER JOIN $outreach_table_name b 
 				ON b.id = a.outreach_id
-				INNER JOIN $position_table_name c
-				ON a.position_id = c.id
-				WHERE a.outreach_id = $outreach->id
-				AND a.position_id = $position->id
+				WHERE b.label = '$outreach->label'
 				AND a.advertise = true
 				"
 			);
-			if($data){
-				$needed = $data->target - $data->approved;
-				if ($needed > 0){
-					//Output data
-					$type = position_type($position->value);
-					echo "<div class='".$type."'>";
-					echo "<p><span class='greenbg'>".$needed."</span> ".$position->value."</p>";
-					echo "</div>";
+			if($i > 1){
+				$clear = "<div style='clear:both;'></div>";
+				$i = 0;
+			} else {
+				$clear = '';
+			}
+			$close = '';
+			if($result->total){ 
+				$start_date = date('F j', strtotime($outreach->start_date));
+				$end_date = date('F j', strtotime($outreach->end_date));
+			
+				echo $clear;
+				echo "<div class='outreachbg'>";
+				echo "<h1><u>".$outreach->label."</u></h1>";
+				echo "<p><span class='redbg'>".$start_date."</span> - 
+					  <span class='redbg'>".$end_date."</span></p>";
+			
+				$close = "</div>";
+				$i++;
+			}
+			foreach($positions as $position){
+				$value = '';
+				$check_value = '';
+				$target = '';
+				$data = $wpdb->get_row( 
+					"
+					SELECT * FROM $join_table_name a
+					INNER JOIN $outreach_table_name b 
+					ON b.id = a.outreach_id
+					INNER JOIN $position_table_name c
+					ON a.position_id = c.id
+					WHERE a.outreach_id = $outreach->id
+					AND a.position_id = $position->id
+					AND a.advertise = true
+					"
+				);
+				if($data){
+					$needed = $data->target - $data->approved;
+					if ($needed > 0){
+						//Output data
+						$type = position_type($position->value);
+						echo "<div class='".$type."'>";
+						echo "<p><span class='greenbg'>".$needed."</span> ".$position->value."</p>";
+						echo "</div>";
+					}
 				}
 			}
+			echo $close;
 		}
-		echo $close;
 	}
 	
 	return;
@@ -610,7 +625,7 @@ function showOpportunityMenu($selected, $fields, $object){
 	echo "</form>\n";
 }
 
-function getContactPhotosForOpportunity($opp){
+function getContactPhotosForOpportunity($opp, $size){
 	global $searchObject, $searchFieldName;
 
 	$client = getConnection();
@@ -626,10 +641,7 @@ function getContactPhotosForOpportunity($opp){
 		}
 	
 		echo "<h1>" . $opp . "</h1>";
-		getPhotos($ids);
-	} else {
-		echo "<h1>" . $opp . "</h1>";
-		echo "Sorry looks like no one has been added to " . $opp . " yet.";
+		getPhotos($ids, $size);
 	}
 }
 
@@ -685,7 +697,7 @@ function position_type($position){
 	}
 }
 
-function getPhotos($contactids){
+function getPhotos($contactids, $size){
 	$mySforceConnection = getConnection();
 	$query = "SELECT Id, Name, ParentId from Attachment Where (ParentId in (";
 	foreach($contactids as $id){
@@ -695,13 +707,22 @@ function getPhotos($contactids){
 	$query .= ") AND Name = 'Contact Picture') ";
 	$queryResult = $mySforceConnection->query($query);
 	$records = $queryResult->records;
+
 	if(count($records) > 0){
 		echo "\n<table cellspacing='5' cellpadding='5'>\n\t<tr>\n";
 		foreach($records as $rec){
 			$name = $mySforceConnection->retrieve('Name', 'Contact', $rec->fields->ParentId);
-			echo "\t\t<td style='text-align:center;font-size:12px;'>\n".
-					"\t\t\t<img src='image.php?id=".$rec->Id."' ".
-					"style='width:200px;height:200px;border:1px solid #ccc;padding:10px'/> <br/>\n\t\t\t"
+			
+			$image = '';
+			if (!file_exists(SFDC_PATH."/imagecache/".$rec->Id.".jpg")){
+				savePhotoFile($rec->Id);				
+			}
+			
+			$image = plugins_url( '/', __FILE__ )."image.php?width=$size&height=$size&cropratio=1:1&image=/imagecache/".$rec->Id.".jpg";
+												
+			echo "\t\t<td style='text-align:center;font-size:10px;'>\n".
+					"\t\t\t<img src='$image' ".
+					"style='width:".$size."px;height:".$size."px;border:1px solid #ccc;padding:".($size/20)."px'/> <br/>\n\t\t\t"
 					. $name[0]->fields->Name. 
 				 "\n\t\t</td>\n";
 			 "\t</tr>\n";
@@ -709,6 +730,13 @@ function getPhotos($contactids){
 		echo "</table>\n";
 	}
 	return NULL;
+}
+
+function savePhotoFile($id){
+	$remote_img = plugins_url( '/', __FILE__ )."/sf-image.php?id=".$id;
+	$img = imagecreatefromjpeg($remote_img);
+	$path = SFDC_PATH."/imagecache/".$id.".jpg";
+	imagejpeg($img, $path, 100);
 }
 
 function array_flatten_recursive($array) { 
